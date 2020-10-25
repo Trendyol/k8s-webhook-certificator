@@ -1,0 +1,91 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: webhook-cert-sa
+  namespace: default
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation
+  labels:
+    app: webhook-cert-sa
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: webhook-cert-sa-cluster-role
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation
+rules:
+  - apiGroups: [ "admissionregistration.k8s.io" ]
+    resources: [ "mutatingwebhookconfigurations" ]
+    verbs: [ "get", "create", "patch" ]
+  - apiGroups:
+      - certificates.k8s.io
+    resources:
+      - certificatesigningrequests
+    verbs:
+      - get
+      - create
+      - delete
+      - list
+      - watch
+  - apiGroups:
+      - certificates.k8s.io
+    resources:
+      - certificatesigningrequests/approval
+    verbs:
+      - update
+  - apiGroups:
+      - certificates.k8s.io
+    resources:
+      - signers
+    resourceNames:
+      - kubernetes.io/* # example.com/* can be used to authorize for all signers in the 'example.com' domain
+    verbs:
+      - approve
+  - apiGroups: [ "" ]
+    resources: [ "secrets" ]
+    verbs: [ "create", "get", "patch","update" ]
+  - apiGroups: [ "" ]
+    resources: [ "configmaps" ]
+    verbs: [ "get" ]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: webhook-cert-sa-role-binding
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: webhook-cert-sa-cluster-role
+subjects:
+  - kind: ServiceAccount
+    name: webhook-cert-sa
+    namespace: default
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: webhook-cert-setup
+  namespace: default
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  template:
+    spec:
+      serviceAccountName: webhook-cert-sa
+      containers:
+        - name: webhook-cert-setup
+          # This is a minimal kubectl image based on Alpine Linux that signs certificates using the k8s extension api server
+          image: devopps/certificator:latest
+          args:
+            - "--service"
+            - "hello"
+          imagePullPolicy: IfNotPresent
+      restartPolicy: Never
+  backoffLimit: 0
