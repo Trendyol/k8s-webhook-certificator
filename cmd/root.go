@@ -41,6 +41,8 @@ import (
 
 var (
 	kubeconfig, namespace, secret, service string
+	days                                   int
+	forceRenewal                           bool
 	csrNameTemplate0                       = "${service}"
 	csrNameTemplate1                       = "${service}.${namespace}"
 	csrNameTemplate2                       = "${service}.${namespace}.svc"
@@ -128,11 +130,44 @@ Usage:
 			},
 		}
 
-		log.Println("Certificate signing request, status: Deleting")
-		err = certificateSigningRequestsClient.Delete(context.TODO(), csrNameWithServiceAndNamespace, metav1.DeleteOptions{})
+		log.Println("Certificate signing request, status: Retrieving")
+		csExistInCluster, err := certificateSigningRequestsClient.Get(context.TODO(), csrNameWithServiceAndNamespace, metav1.GetOptions{})
 		if err != nil {
-			log.Printf("Delete CertificateSigningRequest - error occurred, detail: %v, but ignored", err)
+			log.Printf("Get CertificateSigningRequest - error occurred, detail: %v, but ignored", err)
 		}
+
+		if csExistInCluster.Status.Certificate != nil {
+			log.Println("Certificate signing request, status: Retrieved")
+			certificateAlreadyCreated := csExistInCluster.Status.Certificate
+			block, _ := pem.Decode(certificateAlreadyCreated)
+			cert, err := x509.ParseCertificate(block.Bytes)
+			if err != nil {
+				log.Fatalf("x509.ParseCertificate - error occurred, detail: %v", err)
+			}
+			log.Println("Certificate signing request, status: Checking NotAfter date")
+
+			validForDays := int(cert.NotAfter.Sub(time.Now()).Hours() / 24)
+			log.Printf("Certificate signing request - status: This certificate valid for %d days", validForDays)
+
+			expired := validForDays <= days
+			log.Printf("Certificate signing request - status: Renewal necessary %t", expired || forceRenewal)
+
+			log.Printf("Certificate signing request, status: Expired %t", expired)
+			log.Printf("Certificate signing request, status: Force renewal %t", forceRenewal)
+			if expired || forceRenewal {
+				log.Println("Certificate signing request, status: Renewal process started")
+				log.Println("Certificate signing request, status: Deleting")
+				err = certificateSigningRequestsClient.Delete(context.TODO(), csrNameWithServiceAndNamespace, metav1.DeleteOptions{})
+				if err != nil {
+					log.Fatalf("Delete CertificateSigningRequest - error occurred, detail: %v, but ignored", err)
+				}
+				log.Println("Certificate signing request, status: Deleted")
+			} else {
+				log.Println("Certificate signing request, status: Renewal process is not necessary, skipped")
+				os.Exit(0)
+			}
+		}
+		log.Println("Certificate signing request, status: Not Retrieved")
 
 		log.Println("Certificate signing request, status: Creating")
 		csr, err := certificateSigningRequestsClient.Create(context.TODO(), certificateSigningRequest, metav1.CreateOptions{})
@@ -213,7 +248,7 @@ Usage:
 		} else {
 			log.Println("Secret, status: Updated")
 		}
-		
+
 		log.Printf("Done in %d milliseconds", time.Since(start).Milliseconds())
 	},
 }
@@ -243,6 +278,8 @@ func init() {
 	rootCmd.Flags().StringVarP(&service, "service", "s", "", "Service name of webhook.")
 	rootCmd.Flags().StringVarP(&secret, "secret", "t", "tls-secret", "Secret name for CA certificate and server certificate/key pair.")
 	rootCmd.Flags().StringVarP(&kubeconfig, "kubeconfig", "k", "", "kubeconfig path")
+	rootCmd.Flags().IntVarP(&days, "days", "d", 1, "the number of days remaining for certificate renewal")
+	rootCmd.Flags().BoolVarP(&forceRenewal, "force", "f", false, "enable force renewal before expiration time")
 
 	_ = rootCmd.MarkFlagRequired("service")
 }
