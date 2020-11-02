@@ -10,6 +10,7 @@ This cli tool uses k8s' CertificateSigningRequest API to generate a certificate 
 
 The server key/cert will be stored in a k8s secret.
 
+More detail at: https://medium.com/trendyol-tech/tls-certificates-for-kubernetes-admission-webhooks-made-easy-with-certificator-and-helm-hook-89ece42fa193
 ### Understanding the problem 
 
 When we started to develop an Kubernetes Admission Webhook we notice that there was a requirement that enforced by the apiserver for the admission webhook server and this is TLS connection so apiserver and admission webhook server must connect via TLS with each other.See: [Contacting the webhook](https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/#contacting-the-webhook). To ensure that we need a CA (Certificate Authority) and a client certificate which is signed by this CA. 
